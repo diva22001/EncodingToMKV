@@ -1,4 +1,4 @@
-name: Encode Video MKV (No Subtitle)
+name: Encode Video MKV (Max Compression AV1)
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ on:
       output_name:
         description: "Nama file output (tanpa .mkv)"
         required: false
-        default: "encoded_video"
+        default: "encoded_video_av1"
         type: string
 
 jobs:
@@ -28,27 +28,28 @@ jobs:
           echo "Download video..."
           curl -L "${{ inputs.video_url }}" -o input_video
 
-      - name: Encode Video (MKV + Compress Size + 1080p)
+      - name: Encode Video (AV1 + 1080p + Ultra Compression)
         run: |
-          # Pengaturan Encoding (Sama seperti sebelumnya untuk ukuran kecil):
-          # - Bitrate video dibatasi sekitar 2300k
-          # - Preset superfast untuk kecepatan
-          # - Output container diubah menjadi .mkv
-          # - Memaksa resolusi ke 1920x1080 (Downscale jika source 4K/2K)
+          # Optimasi Kompresi Maksimal:
+          # - c:v libsvtav1: Codec AV1 untuk efisiensi ukuran file terbaik saat ini.
+          # - b:v 1100k: Target bitrate video rendah agar total file kecil (seperti contoh 479MB/52menit).
+          # - preset 10: Menyeimbangkan antara kecepatan encoding dan efisiensi kompresi.
+          # - pix_fmt yuv420p10le: Menggunakan 10-bit warna untuk kualitas lebih baik di bitrate rendah.
+          # - scale=1920:1080: Memastikan output Full HD.
           
           ffmpeg -y -hide_banner -nostats \
             -threads 0 \
             -i input_video \
             -vf "scale=1920:1080" \
-            -c:v libx264 \
-            -b:v 2314k \
-            -maxrate 3000k \
-            -bufsize 6000k \
-            -pix_fmt yuv420p \
-            -preset superfast \
-            -tune zerolatency \
+            -c:v libsvtav1 \
+            -preset 10 \
+            -b:v 1100k \
+            -maxrate 2000k \
+            -bufsize 4000k \
+            -pix_fmt yuv420p10le \
+            -svtav1-params tune=0:enable-overlays=1 \
             -c:a aac \
-            -b:a 189k \
+            -b:a 128k \
             -ar 48000 \
             "${{ inputs.output_name }}.mkv"
 
