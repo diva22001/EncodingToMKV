@@ -1,0 +1,67 @@
+name: Encode Video MKV (No Subtitle)
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: "Direct URL video (mp4/mkv/avi)"
+        required: true
+        type: string
+      output_name:
+        description: "Nama file output (tanpa .mkv)"
+        required: false
+        default: "encoded_video"
+        type: string
+
+jobs:
+  encode:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y ffmpeg jq curl
+
+      - name: Download Video
+        run: |
+          echo "Download video..."
+          curl -L "${{ inputs.video_url }}" -o input_video
+
+      - name: Encode Video (MKV + Compress Size + 1080p)
+        run: |
+          # Pengaturan Encoding (Sama seperti sebelumnya untuk ukuran kecil):
+          # - Bitrate video dibatasi sekitar 2300k
+          # - Preset superfast untuk kecepatan
+          # - Output container diubah menjadi .mkv
+          # - Memaksa resolusi ke 1920x1080 (Downscale jika source 4K/2K)
+          
+          ffmpeg -y -hide_banner -nostats \
+            -threads 0 \
+            -i input_video \
+            -vf "scale=1920:1080" \
+            -c:v libx264 \
+            -b:v 2314k \
+            -maxrate 3000k \
+            -bufsize 6000k \
+            -pix_fmt yuv420p \
+            -preset superfast \
+            -tune zerolatency \
+            -c:a aac \
+            -b:a 189k \
+            -ar 48000 \
+            "${{ inputs.output_name }}.mkv"
+
+      - name: Get Upload Server
+        run: |
+          RESPONSE=$(curl -s "https://up4stream.com/api/upload/server?key=${{ secrets.UP4STREAM_KEY }}")
+          echo "$RESPONSE"
+          SERVER=$(echo "$RESPONSE" | jq -r '.result')
+          echo "UPLOAD_SERVER=$SERVER" >> $GITHUB_ENV
+
+      - name: Upload to Up4Stream
+        run: |
+          curl -X POST \
+            -F "key=${{ secrets.UP4STREAM_KEY }}" \
+            -F "file=@${{ inputs.output_name }}.mkv" \
+            "$UPLOAD_SERVER"
