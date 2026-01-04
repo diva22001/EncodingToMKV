@@ -21,7 +21,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt update
-          sudo apt install -y ffmpeg jq curl
+          sudo apt install -y ffmpeg jq curl rclone
 
       - name: Download Video
         run: |
@@ -53,16 +53,14 @@ jobs:
             -ar 48000 \
             "${{ inputs.output_name }}.mkv"
 
-      - name: Get Upload Server
+      - name: Setup Rclone
         run: |
-          RESPONSE=$(curl -s "https://up4stream.com/api/upload/server?key=${{ secrets.UP4STREAM_KEY }}")
-          echo "$RESPONSE"
-          SERVER=$(echo "$RESPONSE" | jq -r '.result')
-          echo "UPLOAD_SERVER=$SERVER" >> $GITHUB_ENV
+          mkdir -p ~/.config/rclone
+          echo "${{ secrets.RCLONE_CONFIG_BASE64 }}" | base64 -d > ~/.config/rclone/rclone.conf
 
-      - name: Upload to Up4Stream
+      - name: Upload to Google Drive
         run: |
-          curl -X POST \
-            -F "key=${{ secrets.UP4STREAM_KEY }}" \
-            -F "file=@${{ inputs.output_name }}.mkv" \
-            "$UPLOAD_SERVER"
+          # Mengunggah file ke Google Drive menggunakan rclone
+          # Pastikan nama remote di rclone.conf Anda sesuai (contoh: 'gd-drive')
+          # Folder tujuan bisa disesuaikan setelah tanda titik dua (:)
+          rclone copy "${{ inputs.output_name }}.mkv" "gd-drive:/" --progress
