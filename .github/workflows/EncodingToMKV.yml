@@ -90,7 +90,7 @@ jobs:
             ffmpeg -y \
               -i input_video.mp4 \
               -vf "scale=1920:1080" \
-              -c:v libsvtav1 \
+              -c:v libaom-av1 \
               -preset 8 \
               -crf 32 \
               -pix_fmt yuv420p10le \
