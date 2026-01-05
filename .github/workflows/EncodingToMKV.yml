@@ -1,4 +1,4 @@
-name: Encode Video (AV1 / HEVC)
+name: Encode Video MKV (Max Compression AV1)
 
 on:
   workflow_dispatch:
@@ -10,37 +10,18 @@ on:
       output_name:
         description: "Nama file output (tanpa .mkv)"
         required: false
-        default: "encoded_video"
+        default: ""
         type: string
-      codec:
-        description: "av1 atau hevc"
-        required: false
-        default: "av1"
-        type: choice
-        options:
-          - av1
-          - hevc
 
 jobs:
   encode:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Install Base Tools
+      - name: Install Dependencies
         run: |
           sudo apt update
-          sudo apt install -y curl jq
-
-      # ===============================
-      # Install FFmpeg Static
-      # ===============================
-      - name: Install FFmpeg Static
-        run: |
-          curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz -o ffmpeg.tar.xz
-          tar -xf ffmpeg.tar.xz
-          sudo mv ffmpeg-*-static/ffmpeg /usr/local/bin/
-          sudo chmod +x /usr/local/bin/ffmpeg
-          ffmpeg -version
+          sudo apt install -y ffmpeg jq curl
 
       # ===============================
       # Install Rclone
@@ -77,38 +58,35 @@ jobs:
       # ===============================
       # Download Video (BARU JALAN JIKA RCLONE VALID)
       # ===============================
+      
       - name: Download Video
         run: |
-          curl -L "${{ inputs.video_url }}" -o input_video.mp4
-
-      # ===============================
-      # Encode
-      # ===============================
-      - name: Encode Video
+          echo "Download video..."
+          curl -L "${{ inputs.video_url }}" -o input_video
+      - name: Encode Video (AV1 + 1080p + Ultra Compression)
         run: |
-          if [ "${{ inputs.codec }}" = "av1" ]; then
-            ffmpeg -y \
-              -i input_video.mp4 \
-              -vf "scale=1920:1080" \
-              -c:v libaom-av1 \
-              -preset 12 \
-              -crf 32 \
-              -pix_fmt yuv420p10le \
-              -c:a aac \
-              -b:a 128k \
-              "${{ inputs.output_name }}.mkv"
-          else
-            ffmpeg -y \
-              -i input_video.mp4 \
-              -vf "scale=1920:1080" \
-              -c:v libx265 \
-              -preset ultrafast \
-              -crf 23 \
-              -pix_fmt yuv420p \
-              -c:a aac \
-              -b:a 128k \
-              "${{ inputs.output_name }}.mkv"
-          fi
+          # Optimasi Kompresi Maksimal:
+          # - c:v libsvtav1: Codec AV1 untuk efisiensi ukuran file terbaik saat ini.
+          # - b:v 1100k: Target bitrate video rendah agar total file kecil (seperti contoh 479MB/52menit).
+          # - preset 10: Menyeimbangkan antara kecepatan encoding dan efisiensi kompresi.
+          # - pix_fmt yuv420p10le: Menggunakan 10-bit warna untuk kualitas lebih baik di bitrate rendah.
+          # - scale=1920:1080: Memastikan output Full HD.
+          
+          ffmpeg -y -hide_banner -nostats \
+            -threads 0 \
+            -i input_video \
+            -vf "scale=1920:1080" \
+            -c:v libsvtav1 \
+            -preset 12 \
+            -b:v 1100k \
+            -maxrate 2000k \
+            -bufsize 4000k \
+            -pix_fmt yuv420p10le \
+            -svtav1-params tune=0:enable-overlays=1 \
+            -c:a aac \
+            -b:a 128k \
+            -ar 48000 \
+            "${{ inputs.output_name }}.mkv"
 
       # ===============================
       # Upload
