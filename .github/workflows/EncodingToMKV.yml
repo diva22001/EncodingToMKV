@@ -59,22 +59,28 @@ jobs:
       # Download Video (BARU JALAN JIKA RCLONE VALID)
       # ===============================
       
-      - name: Download Video
+      - name: Prepare Input (Support m3u8)
         run: |
-          echo "Download video..."
-          curl -L "${{ inputs.video_url }}" -o input_video
+          URL="${{ inputs.video_url }}"
+
+          if echo "$URL" | grep -qiE "\.m3u8($|\?)"; then
+            echo "Detected m3u8 stream"
+            echo "INPUT_SOURCE=$URL" >> $GITHUB_ENV
+            echo "INPUT_TYPE=m3u8" >> $GITHUB_ENV
+          else
+            echo "Detected direct video file"
+            curl -L "$URL" -o input_video
+            echo "INPUT_SOURCE=input_video" >> $GITHUB_ENV
+            echo "INPUT_TYPE=file" >> $GITHUB_ENV
+          fi
+
       - name: Encode Video (AV1 + 1080p + Ultra Compression)
         run: |
-          # Optimasi Kompresi Maksimal:
-          # - c:v libsvtav1: Codec AV1 untuk efisiensi ukuran file terbaik saat ini.
-          # - b:v 1100k: Target bitrate video rendah agar total file kecil (seperti contoh 479MB/52menit).
-          # - preset 10: Menyeimbangkan antara kecepatan encoding dan efisiensi kompresi.
-          # - pix_fmt yuv420p10le: Menggunakan 10-bit warna untuk kualitas lebih baik di bitrate rendah.
-          # - scale=1920:1080: Memastikan output Full HD.
-          
           ffmpeg -y -hide_banner -nostats \
             -threads 0 \
-            -i input_video \
+            -fflags +genpts \
+            -loglevel error \
+            -i "$INPUT_SOURCE" \
             -vf "scale=1920:1080" \
             -c:v libsvtav1 \
             -preset 12 \
@@ -87,6 +93,7 @@ jobs:
             -b:a 128k \
             -ar 48000 \
             "${{ inputs.output_name }}.mkv"
+
 
       # ===============================
       # Upload
