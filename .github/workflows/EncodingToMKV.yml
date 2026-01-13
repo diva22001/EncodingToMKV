@@ -4,13 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       video_url:
-        description: "Direct URL video (mp4/mkv/avi)"
+        description: "Direct URL video (mp4/mkv/avi/m3u8)"
         required: true
         type: string
       output_name:
         description: "Nama file output (tanpa .mkv)"
-        required: false
-        default: ""
+        required: true
         type: string
 
 jobs:
@@ -23,81 +22,78 @@ jobs:
           sudo apt update
           sudo apt install -y ffmpeg jq curl
 
-      # ===============================
-      # Install Rclone
-      # ===============================
       - name: Install Rclone
         run: |
           curl https://rclone.org/install.sh | sudo bash
           rclone version
 
-      # ===============================
-      # Setup & VALIDASI RCLONE (SEBELUM DOWNLOAD)
-      # ===============================
       - name: Setup & Validate Rclone
         run: |
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONFIG_BASE64 }}" | base64 -d > ~/.config/rclone/rclone.conf
+          rclone listremotes
 
-          echo "== Checking rclone remotes =="
-          REMOTES=$(rclone listremotes)
-
-          if [ -z "$REMOTES" ]; then
-            echo "ERROR: Tidak ada remote rclone terdeteksi"
-            exit 1
-          fi
-
-          echo "Remote tersedia:"
-          echo "$REMOTES"
-
-          if ! echo "$REMOTES" | grep -q "^lasenameygd:"; then
-            echo "ERROR: Remote 'lasenameygd' tidak ditemukan"
-            exit 1
-          fi
-
-      # ===============================
-      # Download Video (BARU JALAN JIKA RCLONE VALID)
-      # ===============================
-      
       - name: Prepare Input (Support m3u8)
         run: |
           URL="${{ inputs.video_url }}"
-
           if echo "$URL" | grep -qiE "\.m3u8($|\?)"; then
-            echo "Detected m3u8 stream"
             echo "INPUT_SOURCE=$URL" >> $GITHUB_ENV
-            echo "INPUT_TYPE=m3u8" >> $GITHUB_ENV
           else
-            echo "Detected direct video file"
             curl -L "$URL" -o input_video
             echo "INPUT_SOURCE=input_video" >> $GITHUB_ENV
-            echo "INPUT_TYPE=file" >> $GITHUB_ENV
           fi
 
-      - name: Encode Video (AV1 + 1080p + Ultra Compression)
+      - name: Encode Video (AV1 1080p Ultra Compression)
         run: |
-          ffmpeg -y -hide_banner -nostats \
-            -threads 0 \
-            -fflags +genpts \
-            -loglevel error \
+          ffmpeg -y -loglevel error \
             -i "$INPUT_SOURCE" \
             -vf "scale=1920:1080" \
             -c:v libsvtav1 \
             -preset 12 \
             -b:v 1100k \
-            -maxrate 2000k \
-            -bufsize 4000k \
             -pix_fmt yuv420p10le \
-            -svtav1-params tune=0:enable-overlays=1 \
             -c:a aac \
             -b:a 128k \
-            -ar 48000 \
             "${{ inputs.output_name }}.mkv"
 
-
-      # ===============================
-      # Upload
-      # ===============================
-      - name: Upload to Google Drive
+      - name: Upload with fallback & Telegram notify
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: |
-          rclone copy "${{ inputs.output_name }}.mkv" "lasenameygd:/" --progress
+          set -euo pipefail
+          FILE="${{ inputs.output_name }}.mkv"
+
+          notify () {
+            curl -fsS -X POST \
+              "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TG_CHAT_ID}" \
+              --data-urlencode "text=$1"
+          }
+
+          upload_drive () {
+            rclone copy "$FILE" "$1:/" --progress
+          }
+
+          if upload_drive "lasenameygd"; then
+            notify "$(printf "✅ Upload berhasil\nNama file: %s\nDrive: lasenameygd" "$FILE")"
+
+          elif upload_drive "divagd"; then
+            notify "$(printf "✅ Upload berhasil\nNama file: %s\nDrive: divagd" "$FILE")"
+
+          elif upload_drive "kidulroro"; then
+            notify "$(printf "✅ Upload berhasil\nNama file: %s\nDrive: kidulroro" "$FILE")"
+
+          else
+            RESPONSE=$(curl -fsS -# -o - -T "$FILE" "https://w.buzzheavier.com/$FILE")
+            ID=$(echo "$RESPONSE" | jq -r '.data.id')
+
+            if [ -z "$ID" ] || [ "$ID" = "null" ]; then
+              notify "$(printf "❌ Upload gagal total\nNama file: %s" "$FILE")"
+              exit 1
+            fi
+
+            URL="https://buzzheavier.com/$ID"
+
+            notify "$(printf "⚠️ Semua Drive gagal\nNama file: %s\nLink: %s" "$FILE" "$URL")"
+          fi
